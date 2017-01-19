@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - animation - morph targets</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				background:#000;
+				color:#fff;
+				padding:0;
+				margin:0;
+				font-weight: bold;
+				overflow:hidden;
+			}
+
+			#info {
+				position: absolute;
+				top: 0px; width: 100%;
+				color: #ffffff;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				text-align: center;
+				z-index:100;
+			}
+
+			#ctrl {
+				position: absolute;
+				top: 0px;
+				left: 0px;
+				width: 200px;
+				color: #ffffff;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				z-index:100;
+			}
+
+
+			a { color:red }
+
+		</style>
+	</head>
+
+	<body>
+		<script src="js/libs/three.min.js"></script>
+		<script src="js/libs/stats.min.js"></script>
+        <script src="js/mymidi.js"></script>
+
+        <script src="js/shaders/CopyShader.js"></script>
+        <script src="js/postprocessing/EffectComposer.js"></script>
+        <script src="js/postprocessing/RenderPass.js"></script>
+        <script src="js/postprocessing/MaskPass.js"></script>
+        <script src="js/postprocessing/ShaderPass.js"></script>
+        <script src="js/shaders/FXAAShader.js"></script>		
+        <script src="js/libs/jquery-1.11.0.min.js"></script> 
+        <script src="js/vezerUtil.js"></script>
+        <script src="js/sliiderTimeline.js"></script>
+
+		<script>
+			// To-do
+			// materials, lighting, background
+			// Create delayed morph animation
+			// Create parameters for Sliider (buttons for triggering morphs)
+			// Perhpas I should do slow morphs due to the delay
+			// Animated camera and rotating the meshes
+			// Create a far plane in order to cut off the meshes
+
+			var material;
+			var allMeshes = [];
+			var offsetAngleAnimation = 0.0;
+			var angleDelta;
+			var morphTargetCount;
+			var	meshRotation = new THREE.Vector3(0,0,0);
+			var morphValues = [];
+			var clock;
+			var morphTest = { startTime: 0 };
+			var textureCube;
+
+			var container, stats;
+			var camera, scene, renderer;
+			var geometry, objects;
+
+			var windowHalfX = window.innerWidth / 2;
+			var windowHalfY = window.innerHeight / 2;
+
+			var light1, light2, light3;
+
+			var composer, dpr, effectFXAA, renderScene;
+
+			var midiDisabled = false;
+
+			//Apparantly this is important for FXAA 
+  			var dpr = (window.devicePixelRatio) ? window.devicePixelRatio : 1;
+
+  			var currentFrame = 0;
+
+  			var smoothZoom;
+
+			////////
+			// SLIIDER
+
+			function updateCamera() {
+    //      		//Smoothing example: smoothMouse += smooth * ( mouse - smoothMouse );
+
+				// var smooth = 0.02;
+				// smoothZoom -= smooth * (slii.inputs.cameraZoom.value - smoothZoom);
+				// camera.position.z = smoothZoom;
+
+				camera.position.z = slii.inputs.cameraZoom.value; //100;
+				camera.position.y = slii.inputs.cameraYPos.value;
+				var farPlane = slii.inputs.cameraZoom.value - slii.inputs.farPlane.value;
+				camera.far = farPlane;
+				camera.updateProjectionMatrix();
+			}
+
+		    var slii = {};
+		    slii.inputs = {
+		        globalSpeed: { type: "number", label: "0. Global Speed", value: 0.6, maxValue: 5, minValue: 0.0 },
+		    	light1: { type: "number", label: "1. Light 1", value: 1, maxValue: 2, minValue: 0},
+		    	light2: { type: "number", label: "2. Light 2", value: 1.2, maxValue: 2, minValue: 0},
+		    	light3: { type: "number", label: "3. Light 3", value: 2.0, maxValue: 4, minValue: 0},
+		        circleRotation: { type: "number", label: "4. Circle Rotation", value: 1, maxValue: 2, minValue: -2.0 },
+		        headsRotation: { type: "number", label: "5. Heads Rotation", value: 0, maxValue: 2, minValue: 0.0 },
+		    	farPlane: { type: "number", label: "6. Crop At Distance", value: 5, maxValue: 18, minValue: 3, onChange: updateCamera },
+		    	limitMorphValues: { type: "toggle", label: "7. Limit Morph Values", value: 0},
+		    	morph01: { type: "number", label: "8. Morph 1", value: 0, maxValue: 10, minValue: 0},
+		    	morph02: { type: "number", label: "9. Morph 2", value: 0, maxValue: 10, minValue: 0},
+		    	morph03: { type: "number", label: "10. Morph 3", value: 0, maxValue: 10, minValue: 0},
+		    	morph04: { type: "number", label: "11. Morph 4", value: 0, maxValue: 10, minValue: 0},
+		    	morph05: { type: "number", label: "12. Morph 5", value: 0, maxValue: 10, minValue: 0},
+		    	morph06: { type: "number", label: "13. Morph 6", value: 0, maxValue: 10, minValue: 0},
+		    	morph07: { type: "number", label: "14. Morph 7", value: 0, maxValue: 10, minValue: 0},
+		    	morph08: { type: "number", label: "15. Morph 8", value: 0, maxValue: 10, minValue: 0},
+				cameraZoom: { type: "number", label: "16. Camera Zoom", value: 130, maxValue: 400, minValue: 10, onChange: updateCamera },
+		    	cameraYPos: { type: "number", label: "17. Camera Position Y", value: 0, maxValue: 100, minValue: -100, onChange: updateCamera },
+				selectMidi: { type: "dropdown", label: "Select midi input", options: valuesForMidiInput, onChange: changeMidiInput }
+		    }
+
+
+			init();
+
+			function init() {
+
+				//smoothZoom = slii.inputs.cameraZoom.value;
+
+				/////////
+		      	// TIMELINE 
+		      
+		      	tracks = vezerUtil.parse('data/timeline.xml');
+		      	sliiderTimeline.init(tracks);
+
+		      	sliiderTimeline.autoBind( slii.inputs );
+
+		      	//
+
+				clock = new THREE.Clock();
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				scene = new THREE.Scene();
+
+				scene.fog = new THREE.Fog( 0x000000, 300, 400 );
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 0.1, 100 );
+				camera.position.x = 0;
+				updateCamera();
+
+			    //camera.lookAt( new THREE.Vector3(0, 0, 0) );
+			    scene.add(camera);
+
+				light1 = new THREE.PointLight( 0xffeedd );
+				light1.position.set( 0, 100, 0 );
+				scene.add( light1 );
+
+				light2 = new THREE.PointLight( 0xaadfff);
+				light2.position.set( 100, 0, 0 );
+				scene.add( light2 );
+
+				light3 = new THREE.PointLight( 0x556677);
+				light3.position.set( -100, 50, 0 );
+				scene.add( light3 );
+
+				//REFLECTION CUBE
+
+				var path = "textures/cube/photostudio1dark/";
+				var format = '.png';
+				var urls = [
+						path + 'posx' + format, path + 'negx' + format,
+						path + 'posy' + format, path + 'negy' + format,
+						path + 'posz' + format, path + 'negz' + format
+					];
+
+
+				textureCube = THREE.ImageUtils.loadTextureCube( urls );
+				textureCube.format = THREE.RGBFormat;
+
+				//Load mesh
+				var meshCount = 9;
+
+				var loader = new THREE.JSONLoader();
+    	        loader.load("obj/ryanhead2014.json.js", function( geometry ) {
+
+				 	geometry.computeVertexNormals();
+				 	geometry.computeMorphNormals();
+				 	morphTargetCount = geometry.morphTargets.length;
+
+
+	                //It's very important to set morphTargets: true in the material!
+	                //material = new THREE.MeshPhongMaterial( { morphTargets: true, ambient: 0x000000, color: 0xdddddd, specular: 0x999999, shininess: 80, shading: THREE.SmoothShading });
+              		material = new THREE.MeshPhongMaterial( { 
+              			morphTargets: true, 
+              			ambient: 0x000000, 
+              			color: 0xddbbaa, 
+              			specular: 0x335555, 
+              			shininess: 1.5, 
+              			shading: THREE.SmoothShading,
+              			//envMap: textureCube,
+              			//combine: THREE.AddOperation,
+              			reflectivity: 0.2,
+              			 });
+	                material.index0AttributeName = "position";
+
+	                meshes = new THREE.Object3D();
+	                // meshes.rotation.order = "ZYX";
+	                // meshes.rotation.z = Math.PI/2; //In order for the animated rotation of x axis to be correctly aligned
+
+	                scene.add(meshes);
+
+	                //Create copies of the mesh
+
+	                for (var i = 0; i < meshCount; i++) {
+	                	var mesh = new THREE.Mesh(geometry, material);
+	                	mesh.scale.set(300,300,300);
+	                	var group = new THREE.Object3D();
+	                	group.userData.offsetAngle = 0;
+	                	group.add(mesh);	
+	                	meshes.add(group);                	
+	                	allMeshes.push(group);
+	                	//console.log("group",group);
+	                }
+
+	                //Set some attributes on the meshes
+
+		            angleDelta = Math.PI*2 / meshCount;
+
+		            allMeshes.forEach( function(group, i) {
+	            		var radians = i * angleDelta;
+	            		group.userData.offsetAngle = radians; //The angle to offset the mesh
+	            		group.userData.morphInfluences = []; //Store values for all morphTargets
+
+	            		for (var j = 0; j < morphTargetCount; j++) {
+	            			group.userData.morphInfluences[j] = 0;
+	            		}
+					});
+
+	                animate();
+	            },"js");
+
+	            //Render
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.sortObjects = false;
+				container.appendChild( renderer.domElement );
+
+				//Post effects
+
+				renderScene = new THREE.RenderPass(scene, camera);
+				effectFXAA = new THREE.ShaderPass(THREE.FXAAShader);
+				effectFXAA.uniforms['resolution'].value.set(1 / (window.innerWidth * dpr), 1 / (window.innerHeight * dpr));
+
+				effectFXAA2 = new THREE.ShaderPass(THREE.FXAAShader);
+				effectFXAA2.uniforms['resolution'].value.set(1 / (window.innerWidth * dpr), 1 / (window.innerHeight * dpr));
+				effectFXAA2.renderToScreen = true;
+
+
+				composer = new THREE.EffectComposer(renderer);
+				composer.setSize(window.innerWidth * dpr, window.innerHeight * dpr);
+				composer.addPass(renderScene);
+				composer.addPass(effectFXAA);
+				composer.addPass(effectFXAA2);
+
+				//Event listeners
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+			}
+
+			function onWindowResize() {
+
+				windowHalfX = window.innerWidth / 2;
+				windowHalfY = window.innerHeight / 2;
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight);
+				composer.setSize(window.innerWidth * dpr, window.innerHeight * dpr);
+
+			}
+
+			function animate() {
+				var mesh; 
+				var meshRotationOffset = 0.1;
+
+			  	//////////
+		  	    // TIMELINE
+
+		    	var vezerFrame = Math.floor(currentFrame);
+			    sliiderTimeline.setValues(vezerFrame);
+
+				//Animate values
+
+				offsetAngleAnimation += 0.01 * slii.inputs.globalSpeed.value * slii.inputs.circleRotation.value;
+				meshRotation.y += 0.01 * slii.inputs.globalSpeed.value * slii.inputs.headsRotation.value;
+
+				//lights
+
+				light1.intensity = slii.inputs.light1.value;
+				light2.intensity = slii.inputs.light2.value;
+				light3.intensity = slii.inputs.light3.value;
+
+				//Arrange heads in a circle
+
+				allMeshes.forEach( function(group, i) {
+            		var radians = group.userData.offsetAngle + offsetAngleAnimation;
+            		var distance = 30;
+            		var positionVector = getPositionFromAngle(distance, radians);
+            		group.position = positionVector;
+            		group.rotation.z = radians;
+				});
+
+				// Rotate meshes around own axis
+				
+				allMeshes.forEach( function(group, i) {
+					mesh = group.children[0];
+					mesh.rotation.y = meshRotation.y;// + (Math.sin(i) /1.5);
+					//Every other heads faces the other way
+					// if (i % 2 == 0) {
+					//  	mesh.rotation.y += Math.PI;
+					// }
+				});
+
+				//Update morphs
+
+				allMeshes.forEach( function(group, i) {
+					mesh = group.children[0];
+					//mesh.morphTargetInfluences = group.userData.morphInfluences;
+					mesh.morphTargetInfluences[0] = slii.inputs.morph01.value;
+					mesh.morphTargetInfluences[1] = slii.inputs.morph02.value;
+					mesh.morphTargetInfluences[2] = slii.inputs.morph03.value;
+					mesh.morphTargetInfluences[3] = slii.inputs.morph04.value;
+					mesh.morphTargetInfluences[4] = slii.inputs.morph05.value;
+					mesh.morphTargetInfluences[5] = slii.inputs.morph06.value;
+					mesh.morphTargetInfluences[6] = slii.inputs.morph07.value;
+					mesh.morphTargetInfluences[7] = slii.inputs.morph08.value;
+					if (slii.inputs.limitMorphValues.value == 1) {
+						for (var i = 0; i < mesh.morphTargetInfluences.length; i++) {
+							mesh.morphTargetInfluences[i] = mesh.morphTargetInfluences[i] > 1 ? 1 : mesh.morphTargetInfluences[i];
+						}
+					}
+				});				
+
+				requestAnimationFrame( animate );
+				render();
+				currentFrame++;
+			}
+
+			function render() {
+
+				//mesh.rotation.y += 0.01;
+
+				//camera.lookAt( scene.position );
+
+	            composer.render();
+				//renderer.render( scene, camera );
+
+			}
+
+	        ///////////////////
+	        //This function returns a x,y,z point when you feed it with a distance and an angle in radians
+	        //The point is located at the given distance from 0,0,0 at the specified angle.
+	        //This version creates a point on a circle around the z axis
+	        function getPositionFromAngle(distance, angle) {
+	            var axis = new THREE.Vector3( 0, 0, 1 );
+	            var vector = new THREE.Vector3( 0, distance, 0);
+	            var matrix = new THREE.Matrix4().makeRotationAxis( axis, angle );
+	            return vector.applyMatrix4( matrix );
+	        }
+
+	        function applyMorph(morphtarget, value) {
+	        	allMeshes.forEach( function(group, i) {
+	        		group.userData.morphInfluences[morphtarget] = value/100;
+	        	});
+	        }	
+
+	        function applyMorphTest(morphtarget, value) {
+	        	morphTest.startTime = clock.getElapsedTime();
+	        }
+
+		</script>
+
+	</body>
+</html>
